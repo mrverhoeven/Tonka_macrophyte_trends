@@ -11,32 +11,17 @@
 #'           collapsed: false
 #'---
 
-#' This script will work in a bay-by-bay framing
 #' 1. pull in plant observation data from PI surveys, clean, and compile those.
 #' 2. calculate key metrics from those
-#' 3. evaluate the change in thos metrics ove time
+#' 3. evaluate the change in those metrics over time
 #' 
-#' I'll start with a rough build of the concepts the rearrange as needed. 
+#' Notes: 
+#' I use two common packages and they have slightly different syntax: data.table and dplyr
+#' I use google gemini and chat GPT to build codeblcks quite often. These always require carful review, but they can really puch out code quickly!
 #' 
-#' 
-#' 1 - updated file names to fit format (e.g., broken one =  Carson_St.Louis_PISurveyData_Combined .xlsx)
-#' 2 - updated some tab names(e.g., broken one = 6-7and10-2017)
-#' 3 - duplicated column names: 
-        #' [1] "Found duplicate columns in the following locations:"
-        #' # A tibble: 4 × 3
-        #' bay                                  survey_date duplicate_column       
-        #' <chr>                                <chr>       <chr>                  
-        #'   1 Carson_St.Louis_PIData_Combined.xlsx 8-12-2013   lythrum_salicaria      
-        #' 2 Grays_PIData_Combined.xlsx           8-9-2022    potamogeton_amplifolius (checked source-- 2nd one should have been P nodosus)
-        #' 3 Northarm_PIData_Combined.xlsx        8-13-2025   lemna_trisulca         (checked source-- 1st one should have been L salicaria)
-        #' 4 Northarm_PIData_Combined.xlsx        8-12-2024   spirodela_polyrrhiza (checked source-- 2nd one should have been P nodosus)
-        #' #' 
-#' 
-#' 4 - Work through column names checking on the taxonomy and code switchin' to names. 
-#' Some fixed in the files, others fixed in R using a renamer
 
 
-
+# Preface -----------------------------------------------------------------
 
 
 #' # Document Preamble
@@ -46,7 +31,7 @@ strttime <- Sys.time()
 getwd()
 
 
-# load libraries ------------------------------------------------------------------
+# ..load libraries ------------------------------------------------------------------
 
 #' ## Libraries
 
@@ -71,7 +56,7 @@ library(binom)
 library(vegan)
 
 
-# load in functions -------------------------------------------------------
+# ..load in functions -------------------------------------------------------
 #' ## Functions
 
 f_dowle3natozeros = function(DT, x) {
@@ -81,7 +66,7 @@ f_dowle3natozeros = function(DT, x) {
 }
 
 
-# load in data -------------------------------------------------
+# Load Data -------------------------------------------------
 
 #' ## Data
 #' 
@@ -105,7 +90,24 @@ excel_files <- dir_ls(root_path,
 print(paste("Found", length(excel_files), "Bay files."))
 
 
-# audit column names ------------------------------------------------------
+# ..audit column names ------------------------------------------------------
+
+
+#' 1 - updated file names to fit format (e.g., broken one =  Carson_St.Louis_PISurveyData_Combined .xlsx)
+#' 2 - updated some tab names(e.g., broken one = 6-7and10-2017)
+#' 3 - duplicated column names: 
+#' [1] "Found duplicate columns in the following locations:"
+#' # A tibble: 4 × 3
+#' bay                                  survey_date duplicate_column       
+#' <chr>                                <chr>       <chr>                  
+#' 1 Carson_St.Louis_PIData_Combined.xlsx 8-12-2013   lythrum_salicaria      
+#' 2 Grays_PIData_Combined.xlsx           8-9-2022    potamogeton_amplifolius (checked source-- 2nd one should have been P nodosus)
+#' 3 Northarm_PIData_Combined.xlsx        8-13-2025   lemna_trisulca         (checked source-- 1st one should have been L salicaria)
+#' 4 Northarm_PIData_Combined.xlsx        8-12-2024   spirodela_polyrrhiza (checked source-- 2nd one should have been P nodosus)
+#' #' 
+#' 
+#' 4 - Work through column names checking on the taxonomy and code switchin' to names. 
+#' Some fixed in the files, others fixed in R using a renamer
 
 
 #Function to find duplicates in a single file
@@ -146,7 +148,7 @@ if(nrow(column_audit) > 0) {
 
 
 
-# pull in data ------------------------------------------------------------
+# ..pull in data ------------------------------------------------------------
 
 
 #Function to read all tabs from a single file and stack them
@@ -209,7 +211,7 @@ column_matrix <- column_summary %>%
 View(column_matrix)
 
 
-# renaming columns --------------------------------------------------------
+# ...renaming columns --------------------------------------------------------
 
 # 1. Your updated name map
 rename_map <- c(
@@ -241,6 +243,9 @@ bay_data_list <- map(bay_data_list, function(df) {
     # Remove those readExcel auto-repair columns (e.g., ...11)
     select(-matches("^\\.\\.\\.\\d+$"))
 })
+
+
+# ..reformat ----------------------------------
 
 # 4. Combine into one master dataframe
 minnetonka_full_data <- bind_rows(bay_data_list)
@@ -289,9 +294,10 @@ f_dowle3natozeros(minnetonka_full_data, plant_cols)
 
 # Carmans -----------------------------------------------------------------
 
-
+#view data 
 minnetonka_full_data[bay_name == "Carmans"]
 
+#snip out just the piece of interest
 carmans <- minnetonka_full_data[bay_name == "Carmans"]
 
 #survey dates & number of sampled points & surveyor
