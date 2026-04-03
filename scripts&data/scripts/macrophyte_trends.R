@@ -547,7 +547,7 @@ abundance_summary <- carmans[] %>%
   filter(!is.na(depth_bin)) %>%
   # Convert species columns to numeric ---
   mutate(across(aquatic_moss:zannichellia_palustris, as.numeric)) %>% 
- ---------------------------------------------------
+ # ---------------------------------------------------
 rowwise() %>%
   mutate(total_abundance = sum(c_across(aquatic_moss:zannichellia_palustris), na.rm = TRUE)) %>%
   ungroup() %>%
@@ -600,7 +600,7 @@ ggplot(abundance_summary, aes(x = factor(year_numeric), y = mean_abundance, fill
   )
 
 
-# Dropping M spicatum -----------------------------------------------------
+# Dropping Invasive species -----------------------------------------------------
 
 invasive_species <- c(
   "butomus_umbellatus",    # Flowering rush
@@ -611,7 +611,7 @@ invasive_species <- c(
   "typha_angustifolia"     # Narrow-leaf cattail
 )
 
-carmans_native <- carmans
+carmans_native <- copy(carmans)
   carmans_native[, (invasive_species) := NULL]
 
 veg_summary <- carmans_native %>%
@@ -808,7 +808,7 @@ ggplot(abundance_summary, aes(x = factor(year_numeric), y = mean_abundance, fill
 
 
 
-# community metrics -------------------------------------------------------
+# ..community metrics -------------------------------------------------------
 
 
 # 1. Calculate FOO for every species per survey date
@@ -871,6 +871,10 @@ ggplot(survey_diversity_long, aes(x = survey_date, y = value, color = metric)) +
 
 
 # Species specific change -----------------------------------------------------
+
+
+# ..FOO -------------------------------------------------------------------
+
 
 
 # 1. Identify Top 10 Species (by total abundance to keep consistency)
@@ -944,7 +948,158 @@ ggplot(species_foo_ts, aes(x = factor(year_numeric), y = foo, group = species)) 
   )
 
 
+# ..rake density ----------------------------------------------------------
 
+
+
+# 1. Identify Top 10 Species (by total abundance)
+top_10_names <- carmans %>%
+  summarize(across(aquatic_moss:zannichellia_palustris, ~sum(as.numeric(.x), na.rm = TRUE))) %>%
+  pivot_longer(everything(), names_to = "species", values_to = "total") %>%
+  arrange(desc(total)) %>%
+  slice(1:10) %>%
+  pull(species)
+
+# 2. Calculate Annual Mean Rake Density and CIs
+species_density_ts <- carmans %>%
+  mutate(year_numeric = format(as.Date(survey_date), "%Y")) %>%
+  select(year_numeric, all_of(top_10_names)) %>%
+  pivot_longer(cols = -year_numeric, names_to = "species", values_to = "score") %>%
+  mutate(score = as.numeric(score)) %>%
+  group_by(year_numeric, species) %>%
+  summarize(
+    mean_density = mean(score, na.rm = TRUE),
+    sd_density = sd(score, na.rm = TRUE),
+    n = n(),
+    se = sd_density / sqrt(n),
+    # 95% Confidence Interval using t-distribution
+    ymin = mean_density - qt(0.975, df = n - 1) * se,
+    ymax = mean_density + qt(0.975, df = n - 1) * se,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    # Clean name for plot and ensure ymin doesn't drop below 0
+    ymin = pmax(0, ymin), 
+    species_label = gsub("_", " ", species)
+  )
+
+# 3. The Plot
+ggplot(species_density_ts, aes(x = factor(year_numeric), y = mean_density, group = species)) +
+  # Subtle background fill per species
+  geom_rect(aes(fill = species), xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf, alpha = 0.05) +
+  
+  # Confidence Interval Error Bars
+  geom_errorbar(aes(ymin = ymin, ymax = ymax), width = 0.1, color = "gray30", size = 0.5) +
+  
+  # Trend lines and points
+  geom_line(color = "gray50", size = 0.5, linetype = "dashed") +
+  geom_point(aes(color = species), size = 2.5) +
+  
+  facet_wrap(~species_label, scales = "free_y", ncol = 2) +
+  
+  # Formatting
+  # Note: Removed label_percent() since rake density is usually a scale (e.g. 0-4)
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.1))) +
+  scale_color_viridis_d(option = "mako") +
+  scale_fill_viridis_d(option = "mako") +
+  
+  labs(
+    title = "Annual Native Species Mean Rake Density",
+    subtitle = "Points: Mean density score | Error bars: 95% Confidence Interval",
+    y = "Mean Rake Density",
+    x = "Year"
+  ) +
+  
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position = "none",
+    strip.background = element_rect(fill = "gray96", color = "gray80"),
+    strip.text = element_text(face = "italic", size = 10),
+    panel.border = element_rect(color = "gray85", fill = NA),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+# Species-specific change by depth ----------------------------------------
+
+# 1. Identify Top 10 Species (Same as before)
+top_10_names <- carmans %>%
+  summarize(across(aquatic_moss:zannichellia_palustris, ~sum(as.numeric(.x), na.rm = TRUE))) %>%
+  pivot_longer(everything(), names_to = "species", values_to = "total") %>%
+  arrange(desc(total)) %>%
+  slice(1:10) %>%
+  pull(species)
+
+# 2. Calculate Annual FOO and Binomial CIs per Depth Zone
+species_foo_depth_ts <- carmans %>%
+  mutate(
+    year_numeric = format(as.Date(survey_date), "%Y"),
+    depth_numeric = as.numeric(depth_ft),
+    # Create the depth bins
+    depth_bin = case_when(
+      depth_numeric >= 2  & depth_numeric < 6  ~ "2-5 ft",
+      depth_numeric >= 6  & depth_numeric < 11 ~ "6-10 ft",
+      depth_numeric >= 11 & depth_numeric < 16 ~ "11-15 ft",
+      depth_numeric >= 16 & depth_numeric < 21 ~ "16-20 ft",
+      depth_numeric >= 21 & depth_numeric < 26 ~ "21-25 ft",
+      depth_numeric >= 26 & depth_numeric < 31 ~ "26-30 ft",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(depth_bin)) %>% # Exclude data outside specific bins
+  select(year_numeric, depth_bin, all_of(top_10_names)) %>%
+  pivot_longer(cols = -c(year_numeric, depth_bin), names_to = "species", values_to = "score") %>%
+  mutate(present = if_else(as.numeric(score) > 0, 1, 0)) %>%
+  # Grouping by depth_bin is the key change here
+  group_by(year_numeric, depth_bin, species) %>%
+  summarize(
+    successes = sum(present, na.rm = TRUE),
+    trials = n(),
+    foo = successes / trials,
+    .groups = "drop"
+  ) %>%
+  rowwise() %>%
+  mutate(
+    ymin = binom.confint(successes, trials, method = "exact")$lower,
+    ymax = binom.confint(successes, trials, method = "exact")$upper,
+    species_label = gsub("_", " ", species)
+  ) %>%
+  ungroup()
+
+# 3. The Plot
+ggplot(species_foo_depth_ts, aes(x = factor(year_numeric), y = foo, 
+                                 group = depth_bin, color = depth_bin)) +
+  
+  # Binomial Error Bars (made slightly transparent to help with overlap)
+  geom_errorbar(aes(ymin = ymin, ymax = ymax), width = 0.2, alpha = 0.6, size = 0.5) +
+  
+  # Trend lines and points
+  geom_line(size = 0.7) +
+  geom_point(size = 2) +
+  
+  # Facet by species
+  facet_wrap(~species_label, scales = "free_y", ncol = 2) +
+  
+  # Formatting
+  scale_y_continuous(labels = label_percent(), expand = expansion(mult = c(0.05, 0.1))) +
+  scale_color_viridis_d(option = "viridis", name = "Depth Zone") + # Better contrast for lines
+  
+  labs(
+    title = "Annual Native Species Frequency (FOO) by Depth Zone",
+    subtitle = "Lines represent different depth ranges | Error bars: 95% Clopper-Pearson CI",
+    y = "Frequency of Occurrence",
+    x = "Year"
+  ) +
+  
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position = "bottom", # Move legend to bottom since we need it now
+    strip.background = element_rect(fill = "gray96", color = "gray80"),
+    strip.text = element_text(face = "italic", size = 10),
+    panel.border = element_rect(color = "gray85", fill = NA),
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
 
 
 
